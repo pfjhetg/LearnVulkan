@@ -22,6 +22,27 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
+// 从instance中寻找vkCreateDebugUtilsMessengerEXT方法的地址，如果开启了对应的层（VK_EXT_DEBUG_UTILS_EXTENSION_NAME），那么就会找到对应方法，否者返回nullptr。
+// 因为vkCreateDebugUtilsMessengerEXT方法是在一个扩展中的，要调用它只能通过vkGetInstanceProcAddr，来找到vkCreateDebugUtilsMessengerEXT方这个方法的
+// 地址，然后进行调用（个人理解类似反射)
+VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
+	const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
+	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+	if (func != nullptr) {
+		return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
+	}
+	else {
+		return VK_ERROR_EXTENSION_NOT_PRESENT;
+	}
+}
+
+void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
+	auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+	if (func != nullptr) {
+		func(instance, debugMessenger, pAllocator);
+	}
+}
+
 class HelloTriangleApplication {
 public:
 	void run() {
@@ -36,6 +57,7 @@ public:
 private:
 	GLFWwindow* window;
 	VkInstance instance;
+	VkDebugUtilsMessengerEXT debugMessenger;
 
 	void initWindow() {
 		glfwInit();
@@ -50,6 +72,8 @@ private:
 
 	void initVulkan() {
 		createInstance();
+		// 设置debug
+		setupDebugMessenger();
 	}
 
 	void mainLoop() {
@@ -59,6 +83,9 @@ private:
 	}
 
 	void cleanup() {
+		if (enableValidationLayers) {
+			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+		}
 		// 这个实例在清理的时候需要自己销毁
 		vkDestroyInstance(instance, nullptr);
 		glfwDestroyWindow(window);
@@ -89,12 +116,16 @@ private:
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		createInfo.pApplicationInfo = &appInfo;
 
-		uint32_t glfwExtensionCount = 0;
+	/*	uint32_t glfwExtensionCount = 0;
 		const char **glfwExtensions;
 		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
 		createInfo.enabledExtensionCount = glfwExtensionCount;
-		createInfo.ppEnabledExtensionNames = glfwExtensions;
+		createInfo.ppEnabledExtensionNames = glfwExtensions;*/
+		// 信用新的获取扩展的方式替代了上面旧的
+		auto extensions = getRequiredExtensions();
+		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+		createInfo.ppEnabledExtensionNames = extensions.data();
 
 		if (enableValidationLayers) {// 添加要启用的层
 			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
@@ -108,6 +139,23 @@ private:
 		// 第一个参数就是我们这里用到的创建信息，第二个是回调，这里不关注留空，第三个就是创建后的Handle
 		if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create instance!");
+		}
+	}
+
+	// 创建调式信使, 步骤和createInstance比较类似，因此可以用同样的理解步骤来帮助理解这个。
+	void setupDebugMessenger() {
+		if (!enableValidationLayers) return;
+
+		VkDebugUtilsMessengerCreateInfoEXT createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+		createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+		createInfo.pfnUserCallback = debugCallBack;
+		// 可选的，这里我们不需要
+		createInfo.pUserData = nullptr;
+
+		if (CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS) {
+			throw std::runtime_error("failed to set up debug messenger!");
 		}
 	}
 
@@ -137,6 +185,36 @@ private:
 		}
 
 		return true;
+	}
+
+	// 封装了一下获取扩展的方法，glfw包含的扩展是一直需要的，debug messenger扩展是根据是否开启了验证层来加入的。               
+	// 前面一章是直接把glfw包含的扩展当成createInfo需要的信息了，这里增加了一个可选的debug messenger扩展，因此有必要重新封装一下。
+	std::vector<const char *> getRequiredExtensions() {
+		uint32_t glfwExtensionsCount = 0;
+		const char **glfwExtensions;
+		glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionsCount);
+		// 从化glfwExtensions第0个元素始，到glfwExtensionsCount个元素止的元素来初始化Vector（这是std::vector的初始化方式，忘记了可以Google）
+		std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionsCount);
+
+		if (enableValidationLayers) {
+			extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		}
+		return extensions;
+	}
+
+	// The VKAPI_ATTR and VKAPI_CALL ensure that the function has the right signature for Vulkan to call it
+	// 第一个参数是消息的严重程度
+	// 第二个参数是事件类型
+	// 第三个参数是详细的信息
+	// 第四个参数是让用户可以自定义数据的
+	// If the callback returns true, then the call is aborted with the VK_ERROR_VALIDATION_FAILED_EXT error.
+	// 这里只是测试验证层，所以返回VK_FALAE即可
+	static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallBack(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+		VkDebugUtilsMessageTypeFlagsEXT messageType,
+		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+		void* pUserData) {
+		std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+		return VK_FALSE;
 	}
 };
 
