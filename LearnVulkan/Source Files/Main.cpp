@@ -3,10 +3,24 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <vector>
+#include <cstring>
 #include <cstdlib>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
+
+// validation layers need to be enabled by specifying their name
+// 和扩展一样，验证层也是通过指定的名字来开启。标准的验证层被包装到一个名字为VK_LAYER_KHRONOS_validation的层中
+const std::vector<const char*> validationLayers = {
+	"VK_LAYER_KHRONOS_validation"
+};
+
+#ifdef NDEBUG
+const bool enableValidationLayers = false;
+#else
+const bool enableValidationLayers = true;
+#endif
 
 class HelloTriangleApplication {
 public:
@@ -54,6 +68,9 @@ private:
 
 	// 创建Vulkan实例，用于连接应用和Vulkan库
 	void createInstance() {
+		if (enableValidationLayers && !checkValidationLayerSupport()) {
+			throw std::runtime_error("validation layers requested, but not available!");
+		}
 		VkInstanceCreateInfo createInfo{};
 		// 可以从这个方法作用域尾部的代码开始往前读这理解
 		// 1.要创建一个实例，需要指定一些列参数
@@ -68,7 +85,7 @@ private:
 		appInfo.pEngineName = "No Engine";
 		appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
 		appInfo.apiVersion = VK_API_VERSION_1_0;
-	
+
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		createInfo.pApplicationInfo = &appInfo;
 
@@ -79,14 +96,46 @@ private:
 		createInfo.enabledExtensionCount = glfwExtensionCount;
 		createInfo.ppEnabledExtensionNames = glfwExtensions;
 
-		createInfo.enabledLayerCount = 0;
+		if (enableValidationLayers) {// 添加要启用的层
+			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.ppEnabledLayerNames = validationLayers.data();
+		}
+		else {
+			createInfo.enabledLayerCount = 0;
+		}
 
 		// 最后创建实例
 		// 第一个参数就是我们这里用到的创建信息，第二个是回调，这里不关注留空，第三个就是创建后的Handle
 		if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create instance!");
 		}
+	}
 
+	bool checkValidationLayerSupport() {
+		uint32_t layerCount;
+		// 后面参数为nullptr时候，是获取层的数量
+		vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+		std::vector<VkLayerProperties> availableLayers(layerCount);
+		// 后面参数不为nullptr时候，表示遍及层，然后依次赋值。
+		vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+		//检测我们开启的验证层是否在系统支持的所有可用的层中
+		for (const char *layerName : validationLayers) {
+			bool layerFound = false;
+
+			for (const auto &layerProperties : availableLayers) {
+				if (strcmp(layerName, layerProperties.layerName) == 0) {
+					layerFound = true;
+					break;
+				}
+			}
+
+			if (!layerFound) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 };
 
