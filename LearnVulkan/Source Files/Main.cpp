@@ -11,7 +11,7 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
 // validation layers need to be enabled by specifying their name
-// 和扩展一样，验证层也是通过指定的名字来开启。标准的验证层被包装到一个名字为VK_LAYER_KHRONOS_validation的层中
+// 和扩展一样，验证层也是通过指定层的名字来开启。Vulkan提供的标准的验证层被包装到一个名字为VK_LAYER_KHRONOS_validation的层中，这里我们就是开启vulkan提供的验证层。
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
 };
@@ -74,7 +74,7 @@ private:
 		VkInstanceCreateInfo createInfo{};
 		// 可以从这个方法作用域尾部的代码开始往前读这理解
 		// 1.要创建一个实例，需要指定一些列参数
-		// 2.可用层暂时不做考虑，后面补充
+		// 2.如果启用了验证层，就开启我们增加的验证层
 		// 3.扩展数量和对应的扩展名字是通过上面部分专门的方法获取（vulkan很多地方都是通过这样类似方式获取的，一定要熟悉这种方式）
 		// 4.pApplicationInfo参数需要一个新的对象，因此就有了代码最前面部分的VkApplicationInfo
 
@@ -115,6 +115,7 @@ private:
 		uint32_t layerCount;
 		// 后面参数为nullptr时候，是获取层的数量
 		vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+		// availableLayers用来存放系统支持的层
 		std::vector<VkLayerProperties> availableLayers(layerCount);
 		// 后面参数不为nullptr时候，表示遍及层，然后依次赋值。
 		vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
