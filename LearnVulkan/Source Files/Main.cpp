@@ -127,9 +127,19 @@ private:
 		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
 		createInfo.ppEnabledExtensionNames = extensions.data();
 
+		// 这个debugCreateInfo是用来在vkCreateInstance和vkDestroyInstance之间调试的。
+		// 前面章节的CreateDebugUtilsMessengerEXT和DestroyDebugUtilsMessengerEXT分别在vkCreateInstance前和vkDestroyInstance后
+		// 因此无法调试vkCreateInstance和vkDestroyInstance之间的任何问题。
+		VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
 		if (enableValidationLayers) {// 添加要启用的层
 			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
 			createInfo.ppEnabledLayerNames = validationLayers.data();
+
+			populateDebugMessengerCreateInfo(debugCreateInfo);
+			// 这个相关知识可以参考https://github.com/KhronosGroup/Vulkan-Docs/blob/master/appendices/VK_EXT_debug_utils.txt#L120中的
+			// 84行附近的代码，注释特别说明了这样的放的callback只会在vkCreateInstance和vkDestroyInstance之间触发
+			// 这里这样设置了，不用专门调用vkCreateDebugUtilsMessengerEXT和vkDestroyDebugUtilsMessengerEXT了，内部处理了会自动启用，并且生命周期是跟着createInfo的。
+			createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
 		}
 		else {
 			createInfo.enabledLayerCount = 0;
@@ -147,16 +157,26 @@ private:
 		if (!enableValidationLayers) return;
 
 		VkDebugUtilsMessengerCreateInfoEXT createInfo{};
-		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		/*createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
 		createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 		createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-		createInfo.pfnUserCallback = debugCallBack;
+		createInfo.pfnUserCallback = debugCallBack;*/
+		populateDebugMessengerCreateInfo(createInfo);
 		// 可选的，这里我们不需要
 		createInfo.pUserData = nullptr;
 
 		if (CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS) {
 			throw std::runtime_error("failed to set up debug messenger!");
 		}
+	}
+
+	// 这部分代码分离出来是为了增加在vkCreateInstance和vkDestroyInstance生命周期内的debug。
+	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
+		createInfo = {};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+		createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+		createInfo.pfnUserCallback = debugCallBack;
 	}
 
 	bool checkValidationLayerSupport() {
