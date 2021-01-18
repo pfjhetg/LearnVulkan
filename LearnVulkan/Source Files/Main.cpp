@@ -23,8 +23,8 @@ const bool enableValidationLayers = true;
 #endif
 
 // 从instance中寻找vkCreateDebugUtilsMessengerEXT方法的地址，如果开启了对应的层（VK_EXT_DEBUG_UTILS_EXTENSION_NAME），那么就会找到对应方法，否者返回nullptr。
-// 因为vkCreateDebugUtilsMessengerEXT方法是在一个扩展中的，要调用它只能通过vkGetInstanceProcAddr，来找到vkCreateDebugUtilsMessengerEXT方这个方法的
-// 地址，然后进行调用（个人理解类似反射)
+// 因为vkCreateDebugUtilsMessengerEXT方法是在一个扩展中的，要调用它只能通过vkGetInstanceProcAddr来找到vkCreateDebugUtilsMessengerEXT这个方法
+// 然后进行调用（个人理解类似反射)
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
 	const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
 	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
@@ -36,6 +36,7 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMes
 	}
 }
 
+// 销毁 原理同上面差不多
 void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
 	auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
 	if (func != nullptr) {
@@ -99,7 +100,7 @@ private:
 			throw std::runtime_error("validation layers requested, but not available!");
 		}
 		VkInstanceCreateInfo createInfo{};
-		// 可以从这个方法作用域尾部的代码开始往前读这理解
+		// 可以从这个方法作用域尾部的代码开始往前读来理解，首先查阅API看需要那几个参数，然后一一进行填充。
 		// 1.要创建一个实例，需要指定一些列参数
 		// 2.如果启用了验证层，就开启我们增加的验证层
 		// 3.扩展数量和对应的扩展名字是通过上面部分专门的方法获取（vulkan很多地方都是通过这样类似方式获取的，一定要熟悉这种方式）
@@ -122,7 +123,7 @@ private:
 
 		createInfo.enabledExtensionCount = glfwExtensionCount;
 		createInfo.ppEnabledExtensionNames = glfwExtensions;*/
-		// 信用新的获取扩展的方式替代了上面旧的
+		// 用新的获取扩展的方式替代了上面旧的
 		auto extensions = getRequiredExtensions();
 		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
 		createInfo.ppEnabledExtensionNames = extensions.data();
@@ -152,7 +153,7 @@ private:
 		}
 	}
 
-	// 创建调式信使, 步骤和createInstance比较类似，因此可以用同样的理解步骤来帮助理解这个。
+	// 创建调式信使(直译，理解形态就可以), 步骤和createInstance比较类似，因此可以用同样的理解步骤来帮助理解这个。
 	void setupDebugMessenger() {
 		if (!enableValidationLayers) return;
 
@@ -171,6 +172,7 @@ private:
 	}
 
 	// 这部分代码分离出来是为了增加在vkCreateInstance和vkDestroyInstance生命周期内的debug。
+	// （这里的& 表示引用，引用就是某一变量（目标）的一个别名，对引用的操作与对变量直接操作完全一样。遗忘的c++知识需要及时复习）
 	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
 		createInfo = {};
 		createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
