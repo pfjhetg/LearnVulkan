@@ -261,8 +261,7 @@ private:
 		std::vector<VkPhysicalDevice> devices(deviceCount);
 		vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 		
-		// 找到一个适合的就可以，也可以根据教程说得按照需求自己计算一个得分来根据需求取。
-		// 这里只是一个教程，不做过多处理。
+		// 这里只是一个教程，不做过多处理。因此找到一个适合的就可以（也可以根据教程说得按照需求自己计算一个得分来根据需求取）
 		for (const auto &device : devices) {
 			if (isDeviceSuitable(device)) {
 				physicalDevice = device;
@@ -294,8 +293,8 @@ private:
 	}
 
 	// 这部分才是本章节重点,找到满足条件的Family的index
-	// Queue Families是一个有相同功能的Queues的集合，有的Queue Families是可能支持四个类型的queue，而另一些可能支持一个，因此我们可以看作几个不同的Queue Families预先分好了很多类型用于支持多种情况
-	// 好的显卡好的原理可能就是和这个有关，支持得多，每一个类型都涉及到。（这是个理解，极有可能是错误的。）
+	// Queue Families是一个有相同功能的Queues的集合，（一般的显卡是三个，第一个支持全部VkQueueFlagBits，第二个支持后面三个VkQueueFlagBits，第三个支持最后两个VkQueueFlagBits）
+	// 一般情况下我们都选一个，一般渲染也只用一个，如果要同时提交多个可以合并了一起提交，个人理解有点类似drawcall，具体在下一节学了后在一起理解。
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
 		QueueFamilyIndices indices;
 
