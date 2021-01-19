@@ -70,6 +70,8 @@ private:
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	VkDevice device;
+	VkQueue graphicsQueue;
 
 	void initWindow() {
 		glfwInit();
@@ -87,6 +89,7 @@ private:
 		// 设置debug
 		setupDebugMessenger();
 		pickPhysicalDevice();
+		createLogicalDevice();
 	}
 
 	void mainLoop() {
@@ -99,6 +102,7 @@ private:
 		if (enableValidationLayers) {
 			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 		}
+		vkDestroyDevice(device, nullptr);
 		// 这个实例在清理的时候需要自己销毁
 		vkDestroyInstance(instance, nullptr);
 		glfwDestroyWindow(window);
@@ -317,6 +321,49 @@ private:
 		}
 
 		return indices;
+	}
+
+	// 当前的硬件设备通常只允许为每一个queueFamily创建很少的queue，我们更常见的是只需要一个queue。通过在多线程中的创建command buffers，然后在主线程中同时提交，这样的开销就非常低了。
+	// (findQueueFamilies方法注释中的疑问在这里解释了)
+	// 这里创建的步骤和前面的比较类似了，就不一一解释了，只写关键步骤注释。
+	void createLogicalDevice() {
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		VkDeviceQueueCreateInfo queueCreateInfo{};
+		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
+		queueCreateInfo.queueCount = 1;
+
+		// 调度优先级，范围是0-1
+		float queuePriority = 1.0f;
+		queueCreateInfo.pQueuePriorities = &queuePriority;
+
+		// 设备特性，后面将会用到
+		VkPhysicalDeviceFeatures deviceFeatures{};
+
+		VkDeviceCreateInfo createInfo{};
+
+		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		createInfo.pQueueCreateInfos = &queueCreateInfo;
+		createInfo.queueCreateInfoCount = 1;
+		createInfo.pEnabledFeatures = &deviceFeatures;
+
+		createInfo.enabledExtensionCount = 0;
+
+		// 这部分逻辑是弃用的了，将会被vkEnumerateDeviceLayerProperties取代
+		if (enableValidationLayers) {
+			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.ppEnabledLayerNames = validationLayers.data();
+		}
+		else {
+			createInfo.enabledLayerCount = 0;
+		}
+
+		if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create logical device!");
+		}
+
+		// 拿到队列的handle
+		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
 	}
 };
 
