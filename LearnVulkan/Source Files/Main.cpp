@@ -85,10 +85,13 @@ private:
 	}
 
 	void initVulkan() {
+		// 创建实例 必须步骤
 		createInstance();
-		// 设置debug
+		// 设置debug 可选
 		setupDebugMessenger();
+		// 选择物理设备 必须步骤
 		pickPhysicalDevice();
+		// 创建逻辑设备 必须步骤
 		createLogicalDevice();
 	}
 
