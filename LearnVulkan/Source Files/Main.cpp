@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <optional>
+#include <set>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -46,11 +47,14 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 }
 
 // 这个结构体是为了更方便而封装的，其optional类型是一种很好的判断没有赋值的方式；
+// 增加了一个是否支持present的判断。
 struct QueueFamilyIndices {
 	std::optional<uint32_t>graphicsFamily;
+	// 表示支持surface的present
+	std::optional<uint32_t> presentFamily;
 
 	bool isComplete() {
-		return graphicsFamily.has_value();
+		return graphicsFamily.has_value() && presentFamily.has_value();
 	}
 };
 
@@ -72,6 +76,9 @@ private:
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	VkDevice device;
 	VkQueue graphicsQueue;
+	VkQueue presentQueue;
+	// 属于WSI (Window System Integration) extensions.，VK_KHR_surface，包含在glfwGetRequiredInstanceExtensions中。这个实例是和平台无关的
+	VkSurfaceKHR surface;
 
 	void initWindow() {
 		glfwInit();
@@ -89,6 +96,8 @@ private:
 		createInstance();
 		// 设置debug 可选
 		setupDebugMessenger();
+		// 放在这里是因为这一步会影响pickPhysicalDevice。
+		createSurface();
 		// 选择物理设备 必须步骤
 		pickPhysicalDevice();
 		// 创建逻辑设备 必须步骤
@@ -106,6 +115,8 @@ private:
 			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 		}
 		vkDestroyDevice(device, nullptr);
+		// destroyed before the instance.
+		vkDestroySurfaceKHR(instance, surface, nullptr);
 		// 这个实例在清理的时候需要自己销毁
 		vkDestroyInstance(instance, nullptr);
 		glfwDestroyWindow(window);
@@ -283,25 +294,12 @@ private:
 
 	// 判断一个硬件设备是否适合
 	bool isDeviceSuitable(VkPhysicalDevice device) {
-		// 这部分注释掉的是前面讲的一些比较基础的属性和特性,
-		// 这部分是基于查找整个硬件设备的信息
-		// 整个硬件设备的属性
-	/*	VkPhysicalDeviceProperties deviceProperties;
-		vkGetPhysicalDeviceProperties(device, &deviceProperties);
-		// 整个硬件设备支持的特性
-		VkPhysicalDeviceFeatures deviceFeatures;
-		vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-
-		return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-			deviceFeatures.geometryShader;*/
 		// findQueueFamilies中的查找是基于设备中的队列族（queueFamilyes）来分类进行的
 		QueueFamilyIndices indices = findQueueFamilies(device);
 		return indices.isComplete();
 	}
 
-	// 这部分才是本章节重点,找到满足条件的Family的index
-	// Queue Families是一个有相同功能的Queues的集合，（一般的显卡是三个，第一个支持全部VkQueueFlagBits，第二个支持后面三个VkQueueFlagBits，第三个支持最后两个VkQueueFlagBits）
-	// 一般情况下我们都选一个，一般渲染也只用一个，如果要同时提交多个可以合并了一起提交，个人理解有点类似drawcall，具体在下一节学了后在一起理解。
+	// 这个方法现在找的queueFamily同时进行了判定是否支持present。
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
 		QueueFamilyIndices indices;
 
@@ -315,6 +313,14 @@ private:
 		for (const auto &queueFamily : queueFamilies) {
 			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {// 这是我们找families的条件，（这里的意思是找出queueFlags和VK_QUEUE_GRAPHICS_BIT相等的，queueFlags是VkQueueFlagBits）
 				indices.graphicsFamily = i;
+			}
+
+			// 支持present判断
+			VkBool32 presentSupport = false;
+			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+			if (presentSupport) {
+				indices.presentFamily = i;
 			}
 
 			if (indices.isComplete()) {
@@ -331,23 +337,29 @@ private:
 	// 这里创建的步骤和前面的比较类似了，就不一一解释了，只写关键步骤注释。
 	void createLogicalDevice() {
 		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
-		VkDeviceQueueCreateInfo queueCreateInfo{};
-		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-		queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-		queueCreateInfo.queueCount = 1;
 
+		// VkDeviceCreateInfo的pQueueCreateInfos可能不止一个了，因此这里要这样改动（如果graphicsFamily和presentFamily不是同一个queue，那就会产生不止一个）
+		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+		std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
 		// 调度优先级，范围是0-1
 		float queuePriority = 1.0f;
-		queueCreateInfo.pQueuePriorities = &queuePriority;
+		for (uint32_t queueFamily : uniqueQueueFamilies) {
+			VkDeviceQueueCreateInfo queueCreateInfo{};
+			queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+			queueCreateInfo.queueFamilyIndex = queueFamily;
+			queueCreateInfo.queueCount = 1;
+			queueCreateInfo.pQueuePriorities = &queuePriority;
+			queueCreateInfos.push_back(queueCreateInfo);
+		}
 
 		// 设备特性，后面将会用到
 		VkPhysicalDeviceFeatures deviceFeatures{};
-
+		
+		// 创建逻辑设备。
 		VkDeviceCreateInfo createInfo{};
-
 		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-		createInfo.pQueueCreateInfos = &queueCreateInfo;
-		createInfo.queueCreateInfoCount = 1;
+		createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+		createInfo.pQueueCreateInfos = queueCreateInfos.data();
 		createInfo.pEnabledFeatures = &deviceFeatures;
 
 		createInfo.enabledExtensionCount = 0;
@@ -367,6 +379,13 @@ private:
 
 		// 拿到队列的handle
 		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+		vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
+	}
+
+	void createSurface() {
+		if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create window surface!");
+		}
 	}
 };
 
