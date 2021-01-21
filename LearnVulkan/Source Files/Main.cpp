@@ -317,6 +317,7 @@ private:
 
 			// 支持present判断
 			VkBool32 presentSupport = false;
+			// device的i的一个队列族是否支持是支持present
 			vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
 
 			if (presentSupport) {
