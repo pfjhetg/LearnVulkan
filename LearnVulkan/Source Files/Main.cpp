@@ -99,7 +99,9 @@ private:
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
 	std::vector<VkImageView> swapChainImageViews;
+	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
+	VkPipeline graphicsPipeline;
 
 	void initWindow() {
 		glfwInit();
@@ -117,15 +119,19 @@ private:
 		createInstance();
 		// 设置debug 可选
 		setupDebugMessenger();
-		// 放在这里是因为这一步会影响pickPhysicalDevice。
+		// 放在这里是因为这一步会影响pickPhysicalDevice。(教程中这一步是在创建逻辑设备后面的) 必须步骤
 		createSurface();
 		// 选择物理设备 必须步骤
 		pickPhysicalDevice();
 		// 创建逻辑设备 必须步骤
 		createLogicalDevice();
-		// 
+		// 根据前面的一些准备，然后在这里创建交换链 必须步骤
 		createSwapChain();
+		// 必须步骤
 		createImageViews();
+		// 必须步骤
+		createRenderPass();
+		// 必须步骤
 		createGraphicsPipeline();
 	}
 
@@ -136,7 +142,9 @@ private:
 	}
 
 	void cleanup() {
+		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+		vkDestroyRenderPass(device, renderPass, nullptr);
 
 		for (auto imageView : swapChainImageViews) {
 			vkDestroyImageView(device, imageView, nullptr);
@@ -226,6 +234,7 @@ private:
 		createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 		createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 		createInfo.pfnUserCallback = debugCallBack;*/
+		// 填充createInfo参数
 		populateDebugMessengerCreateInfo(createInfo);
 		// 可选的，这里我们不需要
 		createInfo.pUserData = nullptr;
@@ -326,7 +335,7 @@ private:
 		}
 	}
 
-	// 判断一个硬件设备是否适合
+	// 判断一个硬件设备是否适合(首先判断队列是否支持，然后判断是否支持指定的扩展，最后判断交换链支持情况)
 	bool isDeviceSuitable(VkPhysicalDevice device) {
 		// findQueueFamilies中的查找是基于设备中的队列族（queueFamilyes）来分类进行的
 		QueueFamilyIndices indices = findQueueFamilies(device);
@@ -360,6 +369,7 @@ private:
 		return requiredExtensions.empty();
 	}
 
+	// 通常的硬件设备通常只允许为每一个queueFamily创建很少的queue，我们常见的是只需要一个queue。通过在多线程中的创建command buffers，然后在主线程中同时提交到一个queue，这样的开销就非常低了。
 	// 这个方法现在找的queueFamily同时进行了判定是否支持present。
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
 		QueueFamilyIndices indices;
@@ -394,17 +404,18 @@ private:
 		return indices;
 	}
 
-	// 当前的硬件设备通常只允许为每一个queueFamily创建很少的queue，我们更常见的是只需要一个queue。通过在多线程中的创建command buffers，然后在主线程中同时提交，这样的开销就非常低了。
-	// (findQueueFamilies方法注释中的疑问在这里解释了)
+	// 从物理设备的队列族中找到满足条件的队列族，并且返回队列族中满足条件的队列的index。然后用这个index申请使用相应的队列。
 	// 这里创建的步骤和前面的比较类似了，就不一一解释了，只写关键步骤注释。
 	void createLogicalDevice() {
+		// 上一步创建物理设备后我们记录了我们选择的物理设备physicalDevice, 根据physicalDevice来创建逻辑设备
 		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 
-		// VkDeviceCreateInfo的pQueueCreateInfos可能不止一个了，因此这里要这样改动（如果graphicsFamily和presentFamily不是同一个queue，那就会产生不止一个）
+		// VkDeviceCreateInfo的pQueueCreateInfos可能不止一个，因此这里要这样改动（如果graphicsFamily和presentFamily不是同一个queue，那就会产生不止一个）
 		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
 		std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
 		// 调度优先级，范围是0-1
-		float queuePriority = 1.0f;
+		float queuePriority = 1.0f;	
+		// 申请使用的队列
 		for (uint32_t queueFamily : uniqueQueueFamilies) {
 			VkDeviceQueueCreateInfo queueCreateInfo{};
 			queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -551,7 +562,7 @@ private:
 		// 后处理使用VK_IMAGE_USAGE_TRANSFER_DST_BIT 
 		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-		// 这后面的一系列设置不懂的看文档或者教程，因为现在还不是很清楚工作原理，所以暂时不标注了。
+		// 设置QueueFamilies, 这里的队列在createLogicalDevice中已经申请了，这里只是设置一个index而已。
 		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
 		if (indices.graphicsFamily != indices.presentFamily) {
@@ -565,6 +576,7 @@ private:
 			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		}
 
+		// 显示内容旋转方向
 		createInfo.preTransform = swapChainSupportDetails.capabilities.currentTransform;
 		// alpha混合方式
 		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -589,10 +601,10 @@ private:
 		swapChainExtent = extent;
 	}
 
+	// 为每一个交换链中的图像创建基本的视图，这些视图在后面的内容中会被作为颜色目标与渲染管线配合使用。
 	void createImageViews() {
-		// 在渲染管线中VkImageView是用来解释VkImage的信息以及那些可以被访问的，VkImage是不能和渲染管线进行交互的， 都是通过VkImageView来操作的。
+		// 在渲染管线中VkImageView是用来解释VkImage的信息以及那些可以被访问的，VkImage是不能和渲染管线进行交互的，都是通过VkImageView来操作的。
 		swapChainImageViews.resize(swapChainImages.size());
-
 		for (size_t i = 0; i < swapChainImages.size(); i++)
 		{
 			VkImageViewCreateInfo createInfo{};
@@ -723,7 +735,7 @@ private:
 		colorBlending.blendConstants[2] = 0.0f;
 		colorBlending.blendConstants[3] = 0.0f;
 
-		// uniform常量创建
+		// uniform常量创建，暂时不是很明白，后续章节会介绍。
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipelineLayoutInfo.setLayoutCount = 0;
@@ -731,6 +743,26 @@ private:
 
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create pipeline layout!");
+		}
+
+		// 创建流水线
+		VkGraphicsPipelineCreateInfo pipelineInfo{};
+		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+		pipelineInfo.stageCount = 2;
+		pipelineInfo.pStages = shaderStages;
+		pipelineInfo.pVertexInputState = &vertexInputInfo;
+		pipelineInfo.pInputAssemblyState = &inputAssembly;
+		pipelineInfo.pViewportState = &viewportState;
+		pipelineInfo.pRasterizationState = &rasterizer;
+		pipelineInfo.pMultisampleState = &multisampling;
+		pipelineInfo.pColorBlendState = &colorBlending;
+		pipelineInfo.layout = pipelineLayout;
+		pipelineInfo.renderPass = renderPass;
+		pipelineInfo.subpass = 0;
+		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+		if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create graphics pipeline!");
 		}
 
 		// 完了就卸载。
@@ -770,6 +802,51 @@ private:
 		}
 
 		return shaderModule;
+	}
+
+	void createRenderPass() {
+		//==============================RenderPass的附件======================================
+		VkAttachmentDescription colorAttachment{};
+		colorAttachment.format = swapChainImageFormat;
+		// 采样次数
+		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		// 这两个应用于颜色和深度数据
+		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		// 这两个应用于模板数据
+		colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		// 这里的知识比较难理解，从CPU linear layout 内存数据 到 GPU optimal layout 就是通过这里设置的
+		// 个人理解initialLayout是RendPass前的布局，就是CPU上数据的内存布局；RendPass后就是GPU阶段了，因此
+		// finalLayout是GPU上的数据在内存的布局。
+		colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		//==============================RenderPass的附件======================================
+
+		//============================== subpass需要的附件引用======================================
+		VkAttachmentReference colorAttachmentRef{};
+		colorAttachmentRef.attachment = 0;
+		colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		//============================== subpass需要的附件引用======================================
+
+		//============================== subpass======================================
+		VkSubpassDescription subpass{};
+		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpass.colorAttachmentCount = 1;
+		subpass.pColorAttachments = &colorAttachmentRef;
+		//============================== subpass需要的附件引用======================================
+
+		// 创建RenderPass
+		VkRenderPassCreateInfo renderPassInfo{};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.attachmentCount = 1;
+		renderPassInfo.pAttachments = &colorAttachment;
+		renderPassInfo.subpassCount = 1;
+		renderPassInfo.pSubpasses = &subpass;
+
+		if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create render pass!");
+		}
 	}
 
 };
