@@ -103,6 +103,8 @@ private:
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
+	VkCommandPool commandPool;
+	std::vector<VkCommandBuffer> commandBuffers;
 
 	void initWindow() {
 		glfwInit();
@@ -136,6 +138,8 @@ private:
 		createGraphicsPipeline();
 		// 必须步骤
 		createFramebuffers();
+		// 
+		createCommandPool();
 	}
 
 	void mainLoop() {
@@ -145,6 +149,8 @@ private:
 	}
 
 	void cleanup() {
+		vkDestroyCommandPool(device, commandPool, nullptr);
+
 		for (auto framebuffer : swapChainFramebuffers) {
 			vkDestroyFramebuffer(device, framebuffer, nullptr);
 		}
@@ -853,7 +859,7 @@ private:
 		subpass.pColorAttachments = &colorAttachmentRef;
 		//============================== subpass需要的附件引用======================================
 
-		// 创建RenderPass
+		// 创建RenderPass的一些相关信息（这里好像并没有真的创建，只是一些相关设置。createCommandBuffers中才是真的创建）
 		VkRenderPassCreateInfo renderPassInfo{};
 		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 		renderPassInfo.attachmentCount = 1;
@@ -869,6 +875,7 @@ private:
 	// 帧缓冲区可以看作是给render pass写attachment存放的地方。一个 pass 最后往 attachment 里面写东西其实就写在了帧缓冲里面
 	// (The attachments specified during render pass creation are bound by wrapping them into a VkFramebuffer object)
 	void createFramebuffers() {
+		// image在流水线中要用ImageView形式表示；每一个ImageView需要一个对应的FrameBuffer用于attachment操作。
 		swapChainFramebuffers.resize(swapChainImageViews.size());
 
 		for (size_t i = 0; i < swapChainImageViews.size(); i++) {
@@ -887,6 +894,80 @@ private:
 
 			if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
 				throw std::runtime_error("failed to create framebuffer!");
+			}
+		}
+	}
+
+	void createCommandPool() {
+		QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+		VkCommandPoolCreateInfo poolInfo{};
+		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
+		poolInfo.flags = 0;// Optional
+
+		if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create command pool!");
+		}
+	}
+
+	// 用于记录行为命令，如果是绘制图形的命令，需要绑定framebuffer因为最终绘制的内容是存放在framebuffer中的。
+	void createCommandBuffers() {
+		// 交换链中每一个对象都需要分配一个commandBuffer，表示渲染这一个帧缓冲的命令。
+		commandBuffers.resize(swapChainFramebuffers.size());
+
+		// 初始化commandBuff，注意初始化多个也是通过一个allocate。
+		VkCommandBufferAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInfo.commandPool = commandPool;
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
+
+		if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
+			throw std::runtime_error("failed to allocate command buffers!");
+		}
+
+		// Starting command buffer recording
+		for (size_t i = 0; i < commandBuffers.size(); i++) {
+			VkCommandBufferBeginInfo beginInfo{};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			beginInfo.flags = 0; // Optional
+			beginInfo.pInheritanceInfo = nullptr; // Optional
+
+			if (vkBeginCommandBuffer(commandBuffers[i], &beginInfo) != VK_SUCCESS) {
+				throw std::runtime_error("failed to begin recording command buffer!");
+			}
+
+			// Starting a render pass
+			VkRenderPassBeginInfo renderPassInfo{};
+			renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			// The first parameters are the render pass itself and the attachments to bind
+			renderPassInfo.renderPass = renderPass;
+			renderPassInfo.framebuffer = swapChainFramebuffers[i];
+
+			// 渲染区域和大小,renderArea是一个VkRect2D，offset表示xy，extent表示with，height。
+			renderPassInfo.renderArea.offset = { 0, 0 };
+			renderPassInfo.renderArea.extent = swapChainExtent;
+
+			VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+			renderPassInfo.clearValueCount = 1;
+			renderPassInfo.pClearValues = &clearColor;
+
+			// Basic drawing commands
+			// commandBuffers[i]是用于记录命令的
+			// renderPassInfo提供渲染的一些细节
+			vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			// bind the graphics pipeline:
+			vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+			// draw
+			vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+
+			// end render pass 
+			vkCmdEndRenderPass(commandBuffers[i]);
+
+			if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to record command buffer!");
 			}
 		}
 	}
