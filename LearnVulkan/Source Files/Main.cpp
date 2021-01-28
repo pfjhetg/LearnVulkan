@@ -99,6 +99,7 @@ private:
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
 	std::vector<VkImageView> swapChainImageViews;
+	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
@@ -133,6 +134,8 @@ private:
 		createRenderPass();
 		// 必须步骤
 		createGraphicsPipeline();
+		// 必须步骤
+		createFramebuffers();
 	}
 
 	void mainLoop() {
@@ -142,6 +145,10 @@ private:
 	}
 
 	void cleanup() {
+		for (auto framebuffer : swapChainFramebuffers) {
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyRenderPass(device, renderPass, nullptr);
@@ -533,6 +540,7 @@ private:
 		}
 	}
 
+	// 交换链总是和Surface相关联的，surface可以看做我们的显示屏幕，交换链就是图像队列。
 	// 用我们当前选中的设备创建SwapChain
 	void createSwapChain() {
 		SwapChainSupportDetails swapChainSupportDetails = querySwapChainSupport(physicalDevice);
@@ -629,6 +637,11 @@ private:
 		}
 	}
 
+	// 整合下面的内容
+	// Shader stages: 着色器模块定义了图形管线可编程阶段的功能
+	// Fixed - function state : 结构体定义固定管线功能，比如输入装配、光栅化、viewport和color blending
+	// Pipeline layout : 管线布局定义uniform 和 push values，被着色器每一次绘制的时候引用
+	// Render pass : 渲染通道通过管线阶段引用附件，并定义它的使用方式
 	void createGraphicsPipeline() {
 		// 首先拿到shader源码
 		auto vertShaderCode = readFile("Shaders/vert.spv");
@@ -804,6 +817,10 @@ private:
 		return shaderModule;
 	}
 
+	// 渲染通道，在我们完成管线的创建工作之前，我们需要告诉Vulkan渲染时候使用的framebuffer帧缓冲区附件相关信息
+	// 我们需要指定多少个颜色和深度缓冲区将会被使用，指定多少个采样器被用到及在整个渲染操作中相关的内容如何处理。所有的这些信息都被封装在一个叫做 render pass 的对象中
+	// 一个渲染流程 Render Pass 代表了从各种元数据经过一系列流程最终生成我们需要的一系列图像（不一定是最终呈现在屏幕上的画面）
+	// 的过程，而这一系列（可能是颜色、深度模板、适合传送等类型）生成出的画面即为 Attachments，也可被成为渲染目标 Render Targets。
 	void createRenderPass() {
 		//==============================RenderPass的附件======================================
 		VkAttachmentDescription colorAttachment{};
@@ -846,6 +863,31 @@ private:
 
 		if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create render pass!");
+		}
+	}
+
+	// 帧缓冲区可以看作是给render pass写attachment存放的地方。一个 pass 最后往 attachment 里面写东西其实就写在了帧缓冲里面
+	// (The attachments specified during render pass creation are bound by wrapping them into a VkFramebuffer object)
+	void createFramebuffers() {
+		swapChainFramebuffers.resize(swapChainImageViews.size());
+
+		for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+			VkImageView attachments[] = {
+				swapChainImageViews[i]
+			};
+
+			VkFramebufferCreateInfo framebufferInfo{};
+			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			framebufferInfo.renderPass = renderPass;
+			framebufferInfo.attachmentCount = 1;
+			framebufferInfo.pAttachments = attachments;
+			framebufferInfo.width = swapChainExtent.width;
+			framebufferInfo.height = swapChainExtent.height;
+			framebufferInfo.layers = 1;
+
+			if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create framebuffer!");
+			}
 		}
 	}
 
