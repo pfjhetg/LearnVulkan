@@ -114,6 +114,7 @@ private:
 	std::vector<VkFence> inFlightFences;
 	std::vector<VkFence> imagesInFlight;
 	size_t currentFrame = 0;
+	bool framebufferResized = false;
 
 	void initWindow() {
 		glfwInit();
@@ -121,9 +122,11 @@ private:
 		// 因为默认是给OpenGL用的，这里不需要因此用GLFW_NO_API
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		// 关闭缩放窗口
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+		//glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+		glfwSetWindowUserPointer(window, this);
+		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 	}
 
 	void initVulkan() {
@@ -169,7 +172,14 @@ private:
 		uint32_t imageIndex;
 		// Retrieve the index of the next available presentable image
 		// 当presentation engine用完了这个vkAcquireNextImageKHR的image后，会发出imageAvailableSemaphores[currentFrame]信号。
-		vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+			recreateSwapChain();
+			return;
+		}
+		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+			throw std::runtime_error("failed to acquire swap chain image!");
+		}
 		// 首次不会执行这里。
 		// 这里的imagesInFlight相关代码是用来防止MAX_FRAMES_IN_FLIGHT和swapchain的image数量不一致的情况的。如果不一致有可能取到的Image是InFlight中的。
 		// 不如说MAX_FRAMES_IN_FLIGHT和是3，swapchain数量是2，那么MAX_FRAMES_IN_FLIGHT=3时候取到的imageIndex就是0，这个时候有可能这个Image还在InFlight中。
@@ -223,47 +233,17 @@ private:
 		presentInfo.pImageIndices = &imageIndex;
 
 		// 呈现渲染数据这个是时候有可能vkQueueSubmit没有执行完，因此我们会设置pWaitSemaphores。
-		vkQueuePresentKHR(presentQueue, &presentInfo);
+		result = vkQueuePresentKHR(presentQueue, &presentInfo);
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
+			framebufferResized = false;
+			recreateSwapChain();
+		}
+		else if (result != VK_SUCCESS) {
+			throw std::runtime_error("failed to present swap chain image!");
+		}
 
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
-	}
-
-	void cleanup() {
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
-			vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
-			vkDestroyFence(device, inFlightFences[i], nullptr);
-		}
-
-		vkDestroyCommandPool(device, commandPool, nullptr);
-
-		for (auto framebuffer : swapChainFramebuffers) {
-			vkDestroyFramebuffer(device, framebuffer, nullptr);
-		}
-
-		vkDestroyPipeline(device, graphicsPipeline, nullptr);
-		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-		vkDestroyRenderPass(device, renderPass, nullptr);
-
-		for (auto imageView : swapChainImageViews) {
-			vkDestroyImageView(device, imageView, nullptr);
-		}
-
-		vkDestroySwapchainKHR(device, swapChain, nullptr);
-		vkDestroyDevice(device, nullptr);
-
-		if (enableValidationLayers) {
-			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
-		}
-
-		// destroyed before the instance.
-		vkDestroySurfaceKHR(instance, surface, nullptr);
-		// 这个实例在清理的时候需要自己销毁
-		vkDestroyInstance(instance, nullptr);
-		glfwDestroyWindow(window);
-
-		glfwTerminate();
 	}
 
 	// 创建Vulkan实例，用于连接应用和Vulkan库
@@ -412,6 +392,11 @@ private:
 		return VK_FALSE;
 	}
 
+	static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+		auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+		app->framebufferResized = true;
+	}
+
 	void pickPhysicalDevice() {
 		uint32_t deviceCount = 0;
 		// 这里遍历所有支持的硬件设备
@@ -514,7 +499,7 @@ private:
 		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
 		std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
 		// 调度优先级，范围是0-1
-		float queuePriority = 1.0f;	
+		float queuePriority = 1.0f;
 		// 申请使用的队列
 		for (uint32_t queueFamily : uniqueQueueFamilies) {
 			VkDeviceQueueCreateInfo queueCreateInfo{};
@@ -916,6 +901,7 @@ private:
 	// 的过程，而这一系列（可能是颜色、深度模板、适合传送等类型）生成出的画面即为 Attachments，也可被成为渲染目标 Render Targets。
 	void createRenderPass() {
 		//==============================RenderPass的附件======================================
+		// Attachments 类似OPENGL的Render Target
 		VkAttachmentDescription colorAttachment{};
 		colorAttachment.format = swapChainImageFormat;
 		// 采样次数
@@ -1086,7 +1072,7 @@ private:
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		
+
 			if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
 				vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
 				vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
@@ -1095,6 +1081,71 @@ private:
 			VkResult vkResult = vkGetFenceStatus(device, inFlightFences[i]);
 			std::cout << vkResult;
 		}
+	}
+
+
+	void cleanup() {
+		cleanupSwapChain();
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+			vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+			vkDestroyFence(device, inFlightFences[i], nullptr);
+		}
+
+		vkDestroyCommandPool(device, commandPool, nullptr);
+
+		vkDestroyDevice(device, nullptr);
+
+		if (enableValidationLayers) {
+			DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+		}
+
+		vkDestroySurfaceKHR(instance, surface, nullptr);
+		vkDestroyInstance(instance, nullptr);
+
+		glfwDestroyWindow(window);
+
+		glfwTerminate();
+	}
+
+
+	void cleanupSwapChain() {
+		for (size_t i = 0; i < swapChainFramebuffers.size(); i++) {
+			vkDestroyFramebuffer(device, swapChainFramebuffers[i], nullptr);
+		}
+
+		vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+
+		vkDestroyPipeline(device, graphicsPipeline, nullptr);
+		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+		vkDestroyRenderPass(device, renderPass, nullptr);
+
+		for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+			vkDestroyImageView(device, swapChainImageViews[i], nullptr);
+		}
+
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
+	}
+
+	void recreateSwapChain() {
+		// 处理最小化
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		while (width == 0 || height == 0) {
+			glfwGetFramebufferSize(window, &width, &height);
+			glfwWaitEvents();
+		}
+		vkDeviceWaitIdle(device);
+
+		cleanupSwapChain();
+
+		createSwapChain();
+		createImageViews();
+		createRenderPass();
+		createGraphicsPipeline();
+		createFramebuffers();
+		createCommandBuffers();
 	}
 
 };
