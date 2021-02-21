@@ -140,7 +140,7 @@ private:
 		createInstance();
 		// 设置debug 可选
 		setupDebugMessenger();
-		// 放在这里是因为这一步会影响pickPhysicalDevice。(教程中这一步是在创建逻辑设备后面的) 必须步骤
+		// 放在这里是因为这一步会影响pickPhysicalDevice。(教程中这一章节是放在创建逻辑设备后面的) 必须步骤
 		createSurface();
 		// 选择物理设备 必须步骤
 		pickPhysicalDevice();
@@ -300,7 +300,7 @@ private:
 
 			populateDebugMessengerCreateInfo(debugCreateInfo);
 			// 这个相关知识可以参考https://github.com/KhronosGroup/Vulkan-Docs/blob/master/appendices/VK_EXT_debug_utils.txt#L120中的
-			// 84行附近的代码，注释特别说明了这样的放的callback只会在vkCreateInstance和vkDestroyInstance之间触发
+			// 84行附近的代码，注释特别说明了这样的callback只会在vkCreateInstance和vkDestroyInstance之间触发
 			// 这里这样设置了，不用专门调用vkCreateDebugUtilsMessengerEXT和vkDestroyDebugUtilsMessengerEXT了，内部处理了会自动启用，并且生命周期是跟着createInfo的。
 			createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
 		}
@@ -1227,7 +1227,7 @@ private:
 			bindingDescription.binding = 0;
 			// 步长，数据跨度
 			bindingDescription.stride = sizeof(Vertex);
-			// 扫描数据方式，这里是逐顶点。
+			// 扫描数据方式，这里是逐顶点。(另一种方式是逐实例，通常用于GPU实例化)
 			bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
 			return bindingDescription;
