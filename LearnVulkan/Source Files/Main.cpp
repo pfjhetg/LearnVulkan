@@ -176,7 +176,7 @@ private:
 	}
 
 	void drawFrame() {
-		// 首次执行的时候，inFlightFences[currentFrame]默认是signaled的。
+		// 首次执行的时候，inFlightFences[currentFrame]默认是signaled的（创建的时候初始化成了success）。
 		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
 		uint32_t imageIndex;
@@ -192,7 +192,7 @@ private:
 		}
 		// 首次不会执行这里。
 		// 这里的imagesInFlight相关代码是用来防止MAX_FRAMES_IN_FLIGHT和swapchain的image数量不一致的情况的。如果不一致有可能取到的Image是InFlight中的。
-		// 不如说MAX_FRAMES_IN_FLIGHT和是3，swapchain数量是2，那么MAX_FRAMES_IN_FLIGHT=3时候取到的imageIndex就是0，这个时候有可能这个Image还在InFlight中。
+		// 比如说MAX_FRAMES_IN_FLIGHT和是3，swapchain数量是2，那么MAX_FRAMES_IN_FLIGHT=3时候取到的imageIndex就是0，这个时候有可能这个Image还在InFlight中。
 		if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
 			// 这里的vkWaitForFences和第一个vkWaitForFences等待的是一个东西，不会在逻辑中判断下一个信号发出，判断的是同一个信号。
 			vkWaitForFences(device, 1, &imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
@@ -224,7 +224,7 @@ private:
 		// unsignaled 
 		vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
-		// 这里的inFlightFences[currentFrame]会在命令缓冲区完成执行出信号，在vkWaitForFences的地方就可以被知晓已经收到信号，可以继续程序接下来的操作。
+		// 这里的inFlightFences[currentFrame]会在命令缓冲区完成执行发出信号，在vkWaitForFences的地方就可以被知晓已经收到信号，可以继续程序接下来的操作。
 		// 提交执行渲染任务
 		if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
 			throw std::runtime_error("failed to submit draw command buffer!");
@@ -233,6 +233,7 @@ private:
 		VkPresentInfoKHR presentInfo{};
 		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
+		// 呈现渲染数据的时候有可能vkQueueSubmit没有执行完，因此我们会设置pWaitSemaphores。
 		presentInfo.waitSemaphoreCount = 1;
 		presentInfo.pWaitSemaphores = signalSemaphores;
 
@@ -242,7 +243,6 @@ private:
 
 		presentInfo.pImageIndices = &imageIndex;
 
-		// 呈现渲染数据这个是时候有可能vkQueueSubmit没有执行完，因此我们会设置pWaitSemaphores。
 		result = vkQueuePresentKHR(presentQueue, &presentInfo);
 		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
 			framebufferResized = false;
@@ -1130,7 +1130,7 @@ private:
 
 		VkFenceCreateInfo fenceInfo{};
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-		// 有这个flags创建出来的这些semaphore，fence默认状态都是VK_SUCCESS，表示发出信号了。
+		// fence默认状态设置成VK_SUCCESS
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -1300,6 +1300,7 @@ private:
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
 	}
 
+	// 和createVertexBuffer类似的操作。
 	void createIndexBuffer() {
 		VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
 
