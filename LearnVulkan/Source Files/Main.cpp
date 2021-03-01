@@ -1428,7 +1428,7 @@ private:
 			throw std::runtime_error("failed to allocate descriptor sets!");
 		}
 
-		// 配置描述
+		// 配置描述(这里是配置缓冲类型的资源描述)
 		for (size_t i = 0; i < swapChainImages.size(); i++) {
 			// 配置描述需要的信息
 			VkDescriptorBufferInfo bufferInfo{};
