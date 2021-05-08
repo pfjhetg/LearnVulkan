@@ -56,7 +56,7 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 	}
 }
 
-// 这个结构体是为了更方便而封装的，其optional类型是一种很好的判断没有赋值的方式；
+// 这个结构体是为了更方便而封装的（因为创建队列要要传入队列族的index），其optional类型是一种很好的判断没有赋值的方式；
 // 增加了一个是否支持present的判断。
 struct QueueFamilyIndices {
 	std::optional<uint32_t>graphicsFamily;
@@ -301,19 +301,18 @@ private:
 
 			createInfo.enabledExtensionCount = glfwExtensionCount;
 			createInfo.ppEnabledExtensionNames = glfwExtensions;*/
-			// 用新的获取扩展的方式替代了上面旧的
+		// 用新的获取扩展的方式替代了上面旧的
 		auto extensions = getRequiredExtensions();
 		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
 		createInfo.ppEnabledExtensionNames = extensions.data();
 
-		// 这个debugCreateInfo是用来在vkCreateInstance和vkDestroyInstance之间调试的。
-		// 前面章节的CreateDebugUtilsMessengerEXT和DestroyDebugUtilsMessengerEXT分别在vkCreateInstance前和vkDestroyInstance后
-		// 因此无法调试vkCreateInstance和vkDestroyInstance之间的任何问题。
+		// 这个debugCreateInfo是用与生命周期在vkCreateInstance和vkDestroyInstance之间的调试的。（前面章节的CreateDebugUtilsMessengerEXT
+		// 和DestroyDebugUtilsMessengerEXT分别在vkCreateInstance前和vkDestroyInstance后
+		// 因此无法调试vkCreateInstance和vkDestroyInstance之间的任何问题。）
 		VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
 		if (enableValidationLayers) {// 添加要启用的层
 			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
 			createInfo.ppEnabledLayerNames = validationLayers.data();
-
 			populateDebugMessengerCreateInfo(debugCreateInfo);
 			// 这个相关知识可以参考https://github.com/KhronosGroup/Vulkan-Docs/blob/master/appendices/VK_EXT_debug_utils.txt#L120中的
 			// 84行附近的代码，注释特别说明了这样的callback只会在vkCreateInstance和vkDestroyInstance之间触发
@@ -350,7 +349,7 @@ private:
 		}
 	}
 
-	// 这部分代码分离出来是为了增加在vkCreateInstance和vkDestroyInstance生命周期内的debug。
+	// 这部分代码分离出来是为了增加生命周期内在vkCreateInstance和vkDestroyInstance间的debug。
 	// （这里的& 表示引用，引用就是某一变量（目标）的一个别名，对引用的操作与对变量直接操作完全一样。遗忘的c++知识需要及时复习）
 	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
 		createInfo = {};
@@ -480,8 +479,9 @@ private:
 		return requiredExtensions.empty();
 	}
 
-	// 通常的硬件设备通常只允许为每一个queueFamily创建很少的queue，我们常见的是只需要一个queue。通过在多线程中的创建command buffers，然后在主线程中同时提交到一个queue，这样的开销就非常低了。
-	// 这个方法现在找的queueFamily同时进行了判定是否支持present。
+	// 硬件设备通常只允许为每一个queueFamily创建很少的queue，我们常见的是只需要一个queue。
+	// 在多线程中创建command buffers，然后在主线程中同时提交到一个queue，这样的开销就非常低了。
+	// 这个方法现在找的queueFamily同时判定了是否支持present。
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
 		QueueFamilyIndices indices;
 
@@ -493,7 +493,8 @@ private:
 
 		int i = 0;
 		for (const auto &queueFamily : queueFamilies) {
-			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {// 这是我们找families的条件，（这里的意思是找出queueFlags和VK_QUEUE_GRAPHICS_BIT相等的，queueFlags是VkQueueFlagBits）
+			// 这是我们找families的条件，（这里的意思是找出queueFlags和VK_QUEUE_GRAPHICS_BIT相等的，queueFlags是VkQueueFlagBits）
+			if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
 				indices.graphicsFamily = i;
 			}
 
@@ -569,7 +570,7 @@ private:
 		vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 	}
 
-	// surface是一个extensions，这里创建一个主要是看我们的平台是否支持surface这个扩展。
+	// surface是一个extensions，这里创建的目的主要是看我们的平台是否支持surface这个扩展。
 	void createSurface() {
 		if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create window surface!");
@@ -653,11 +654,11 @@ private:
 		// 下面三行代码都是根据我们设备支持的交换链详情来选择合适的设置（合适的标准是我们根据需要自己定义的）
 		// querySwapChainSupport方法中只是说明了我们的设备支持,findQueueFamilies方法中我们也是这样的，先找出支持的
 		// 然后在支持的里面找出满足我们条件的。
+		VkExtent2D extent = chooseSwapExtent(swapChainSupportDetails.capabilities);
 		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupportDetails.formats);
 		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupportDetails.presentModes);
-		VkExtent2D extent = chooseSwapExtent(swapChainSupportDetails.capabilities);
 
-		// 0 is a special value that means that there is no maximum
+		// maximum = 0 is a special value that means that there is no maximum
 		uint32_t imageCount = swapChainSupportDetails.capabilities.minImageCount + 1;
 		if (swapChainSupportDetails.capabilities.maxImageCount > 0 && imageCount > swapChainSupportDetails.capabilities.maxImageCount) {
 			imageCount = swapChainSupportDetails.capabilities.maxImageCount;
@@ -675,7 +676,7 @@ private:
 		// 后处理使用VK_IMAGE_USAGE_TRANSFER_DST_BIT 
 		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-		// 设置QueueFamilies, 这里的队列在createLogicalDevice中已经申请了，这里只是设置一个index而已。
+		// 设置QueueFamilies, 队列在createLogicalDevice中已经申请了，这里只是设置一个index而已。
 		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 		uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
 		if (indices.graphicsFamily != indices.presentFamily) {
