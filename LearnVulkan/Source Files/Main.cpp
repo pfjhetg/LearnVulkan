@@ -603,6 +603,27 @@ private:
 		return details;
 	}
 
+	// 交换内容选择（分辨率）
+	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
+		if (capabilities.currentExtent.width != UINT32_MAX) {
+			return capabilities.currentExtent;
+		}
+		else {
+			int width, height;
+			glfwGetFramebufferSize(window, &width, &height);
+
+			VkExtent2D actualExtent = {
+				static_cast<uint32_t>(width),
+				static_cast<uint32_t>(height)
+			};
+
+			actualExtent.width = std::max(capabilities.minImageExtent.width, std::min(capabilities.maxImageExtent.width, actualExtent.width));
+			actualExtent.height = std::max(capabilities.minImageExtent.height, std::min(capabilities.maxImageExtent.height, actualExtent.height));
+
+			return actualExtent;
+		}
+	}
+
 	// VkSurfaceFormatKHR选择。
 	VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
 		for (const auto& availableFormat : availableFormats) {
@@ -623,27 +644,6 @@ private:
 		}
 
 		return VK_PRESENT_MODE_FIFO_KHR;
-	}
-
-	// 交换内容选择（分辨率）
-	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
-		if (capabilities.currentExtent.width != UINT32_MAX) {
-			return capabilities.currentExtent;
-		}
-		else {
-			int width, height;
-			glfwGetFramebufferSize(window, &width, &height);
-
-			VkExtent2D actualExtent = {
-				static_cast<uint32_t>(width),
-				static_cast<uint32_t>(height)
-			};
-
-			actualExtent.width = std::max(capabilities.minImageExtent.width, std::min(capabilities.maxImageExtent.width, actualExtent.width));
-			actualExtent.height = std::max(capabilities.minImageExtent.height, std::min(capabilities.maxImageExtent.height, actualExtent.height));
-
-			return actualExtent;
-		}
 	}
 
 	// 交换链总是和Surface相关联的，surface可以看做我们的显示屏幕，交换链就是图像队列。
@@ -690,7 +690,7 @@ private:
 			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		}
 
-		// 显示内容旋转方向
+		// 显示内容的transform
 		createInfo.preTransform = swapChainSupportDetails.capabilities.currentTransform;
 		// alpha混合方式
 		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -767,7 +767,7 @@ private:
 		}
 	}
 
-	// 整合下面的内容
+	// 流水线整合了下面的内容
 	// Shader stages: 着色器模块定义了图形管线可编程阶段的功能
 	// Fixed - function state : 结构体定义固定管线功能，比如输入装配、光栅化、viewport和color blending
 	// Pipeline layout : 管线布局定义uniform 和 push values，被着色器每一次绘制的时候引用
@@ -951,8 +951,7 @@ private:
 		return shaderModule;
 	}
 
-	// 渲染通道，在我们完成管线的创建工作之前，我们需要告诉Vulkan渲染时候使用的framebuffer帧缓冲区附件相关信息
-	// 我们需要指定多少个颜色和深度缓冲区将会被使用，指定多少个采样器被用到及在整个渲染操作中相关的内容如何处理。所有的这些信息都被封装在一个叫做 render pass 的对象中
+	// 渲染步骤，我们需要指定多少个颜色和深度缓冲区将会被使用，指定多少个采样器被用到及在整个渲染操作中相关的内容如何处理。所有的这些信息都被封装在一个叫做 render pass 的对象中
 	// 一个渲染流程 Render Pass 代表了从各种元数据经过一系列流程最终生成我们需要的一系列图像（不一定是最终呈现在屏幕上的画面）
 	// 的过程，而这一系列（可能是颜色、深度模板、适合传送等类型）生成出的画面即为 Attachments，也可被成为渲染目标 Render Targets。
 	void createRenderPass() {
@@ -1011,9 +1010,9 @@ private:
 		}
 	}
 
-	// 帧缓冲区可以看作是给render pass写attachment存放的地方。一个 pass 最后往 attachment 里面写东西其实就写在了帧缓冲里面
+	// 帧缓冲区可以看作是给render pass写attachment存放的地方。一个 pass 最后往 attachment 里面写的东西其实就写在了帧缓冲里面
 	// (The attachments specified during render pass creation are bound by wrapping them into a VkFramebuffer object)
-	// 这个可以看作是最终存放流水线产出的东西的地方。
+	// 也可以看作是最终存放流水线产出的东西的地方。
 	void createFramebuffers() {
 		// image在流水线中要用ImageView形式表示；每一个ImageView需要一个对应的FrameBuffer用于attachment操作。
 		swapChainFramebuffers.resize(swapChainImageViews.size());
